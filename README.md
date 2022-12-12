@@ -29,4 +29,4 @@ Folded paper (without glue this time):
 
 Stitched poster:
 
-![image](https://user-images.githubusercontent.com/19838874/206938716-d273e9f9-125c-424a-9ecf-9ecbec6aa7c8.png)
+![image](https://user-images.githubusercontent.com/19838874/206939046-cfc54152-f871-49c8-ab74-1c439dc46503.png)
