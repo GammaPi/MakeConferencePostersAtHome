@@ -1,11 +1,15 @@
-import math
-
+byimport math
+import pdf2image
 import numpy as np
-import cv2
-
+import os
+from PIL import Image,ImageDraw,ImageFont
+from tqdm import tqdm
+import logging
+logger=logging.getLogger(__name__)
+Image.MAX_IMAGE_PIXELS = 777600000
 '''
 Author: Steven Tang
-Version: 1.0
+Version: 1.1
 '''
 
 
@@ -16,7 +20,7 @@ def inchToPixel(inch, dpi):
     :param dpi: Dots per inch
     :return: Pixel value
     '''
-    return int(float(inch) * float(dpi))
+    return int(inch * dpi)
 
 
 def pixelToInch(pixel, dpi):
@@ -26,93 +30,123 @@ def pixelToInch(pixel, dpi):
     :param dpi: Dots per inch
     :return: Pixel value
     '''
-    return int(pixel) // float(dpi)
+    return pixel / dpi
 
+class Config:
+    def __init__(self):
+        self.pdfPath=None
+        self.paperWidth=None
+        self.paperHeight=None
+        self.minGlueBorderSize=None
+        self.printerPPI=None
 
-def drawTextAtCenter(image, text):
-    '''
-    Draw text at the center of an image
-    '''
-    # rlt=image.copy(image)
+def generateImage(content, rowI, colI, currtingIndicator,paperSize:tuple):
 
-    imgRows, imgCols, _ = image.shape
-
-    fontFace = cv2.FONT_HERSHEY_DUPLEX
-    fontScale = 4.0
-    thickness = 4
-
-    (textW, textH), _ = cv2.getTextSize(text, fontFace=fontFace, fontScale=fontScale, thickness=thickness)
-
-    return cv2.putText(image, text, (imgCols // 2 - textW // 2, imgRows // 2 - textH // 2), fontFace=fontFace,
-                       fontScale=fontScale, thickness=thickness, color=(0, 0, 0))
-
-
-def generateImage(content, rowI, colI, currtingIndicator, borderWidth):
     shouldCutLeft, shouldCutRight, shouldCutTop, shouldCutBottom = currtingIndicator
 
-    contentWithBorderRows = content.shape[0] + borderWidth * 2
-    contentWithBorderCols = content.shape[1] + borderWidth * 2
+    newImg=Image.new('RGB',size=paperSize,color=(255,255,255))
 
-    newImg = np.ones(shape=(contentWithBorderRows, contentWithBorderCols, 3)) * 255
+    paperWidth,paperHeight=paperSize
 
-    borderLeft = newImg[:, 0:borderWidth, :]
-    borderRight = newImg[:, contentWithBorderCols - (borderWidth):, :]
-    borderTop = newImg[0:borderWidth, :, :]
-    borderBottom = newImg[contentWithBorderRows - (borderWidth):, :, :]
-    contentImg = newImg[borderWidth: contentWithBorderRows - (borderWidth),
-                 borderWidth: contentWithBorderCols - (borderWidth), :]
+    '''
+    Paste image at center
+    '''
+    contentX=(paperWidth-content.width)//2
+    contentY=(paperHeight-content.height)//2
+    contentXp=contentX+content.width
+    contentYp=contentY+content.height
+    newImg.paste(content,(contentX,contentY))
 
-    contentImg[:, :, :] = content[:, :, :]
+    '''
+    Calculate coordinates
+    '''
 
-    # Draw seperators
-    borderLeft[:, -10:, :] = 0
-    borderRight[:, :10, :] = 0
-    borderTop[-10:, :, :] = 0
-    borderBottom[10:, -10:, :] = 0
-
-    if shouldCutLeft:
-        borderLeft[:, :, :] = 200
-
-    if shouldCutRight:
-        borderRight[:, :, :] = 200
-
-    if shouldCutTop:
-        borderTop[:, :, :] = 200
-
-    if shouldCutBottom:
-        borderBottom[:, :, :] = 200
-
-    borderLeft[:, :, :] = drawTextAtCenter(borderLeft, str('%d,%d' % (rowI, colI)))
-    borderRight[:, :, :] = drawTextAtCenter(borderRight,str('%d,%d' % (rowI, colI)))
-    borderTop[:, :, :] = drawTextAtCenter(borderTop, str('%d,%d' % (rowI, colI)))
-    borderBottom[:, :, :] = drawTextAtCenter(borderBottom, str('%d,%d' % (rowI, colI)))
-
-    cv2.imwrite(str((rowI, colI)) + '.jpg', newImg)
-    # cv2.waitKey()
+    newImgDraw=ImageDraw.Draw(newImg)
+    borderColor=['#d3d3d3','#646464']
+    borderColorBoxCoords=[
+        # Left border
+        ((0, 0), (contentX, paperHeight)),
+        # Right border
+        ((contentXp, 0), (paperWidth, paperHeight)),
+        #Top Border
+        ((0, 0), (paperWidth, contentY)),
+        #Bottom Border
+        ((0, contentYp), (paperWidth, paperHeight))
+    ]
+    borderLineCoords = [
+        # Left border
+        ((contentX-5, 0), (contentX, paperHeight)),
+        # Right border
+        ((contentXp, 0), (contentXp+5, paperHeight)),
+        # Top Border
+        ((0, contentY-5), (paperWidth, contentY)),
+        # Bottom Border
+        ((0, contentYp), (paperWidth, contentYp+5))
+    ]
+    textLeftTopAnchor=[None,None,None,None] #Calculated below
 
 
-if __name__ == '__main__':
-    paperWidth = input('Paper Width (In inches)')
-    paperHeight = input('Paper Height (In inches)')
+    '''
+    Draw border color
+    '''
+    for i,v in enumerate(currtingIndicator):
+        if v==False:
+            newImgDraw.rectangle(borderColorBoxCoords[i], fill=borderColor[v])
+    for i, v in enumerate(currtingIndicator):
+        if v==True:
+            newImgDraw.rectangle(borderColorBoxCoords[i], fill=borderColor[v])
+    '''
+    Search optimal font size
+    '''
+    optimalFont = ImageFont.truetype(''.join([os.path.dirname(os.path.realpath(__file__)), os.sep, 'Roboto-Black.ttf']),
+                             size=100)
+    for i, v in enumerate(currtingIndicator):
+        leftTop = borderColorBoxCoords[i][0]
+        rightBottom = borderColorBoxCoords[i][1]
+        textLeftTopAnchor[i] = [(leftTop[0] + rightBottom[0]) / 2, (leftTop[1] + rightBottom[1]) / 2]
+        text = None
+        if v == True:
+            text = '(%d,%d)\nCUT/FOLD' % (rowI, colI)
+        else:
+            text = '(%d,%d)\nGLUE' % (rowI, colI)
 
-    minGlueBorderWidth = input('Min Glue Border Width (In inches)')
-    printerPPI = input('Printer PPI')
-    imagePath=input('Image Path')
+        while True:
+            textL, textT, textR, textB = newImgDraw.textbbox((0,0), text, optimalFont, align='center')
+            if ((textR - textL) < contentX * 0.6 and (textB - textT) < contentY * 0.6):
+                textLeftTopAnchor[i][0] -= (textR - textL) / 2
+                textLeftTopAnchor[i][1] -= (textB - textT) / 2
+                break
+            else:
+                optimalFont = ImageFont.truetype('Roboto-Black.ttf', size=optimalFont.size - 10)
 
-    oriImg = cv2.imread(imagePath)
-    posterHeight = oriImg.shape[0]
-    posterWidth = oriImg.shape[1]
+    '''
+    Draw text and cutting hints
+    '''
+    for i, v in enumerate(currtingIndicator):
+        newImgDraw.rectangle(borderLineCoords[i],fill='black')
+        text=None
+        fillColor=None
+        if v==True:
+            text='(%d,%d)\nCUT/FOLD'%(rowI,colI)
+            fillColor='white'
+        else:
+            text='(%d,%d)\nGLUE'%(rowI,colI)
+            fillColor='black'
+        newImgDraw.text(textLeftTopAnchor[i],text,fillColor,align='center',font=optimalFont)
 
-    # cv2.namedWindow('Ori', cv2.WINDOW_NORMAL)
-    # cv2.imshow('Ori', oriImg)
-    # cv2.waitKey()
+    return newImg
 
-    paperWidth = inchToPixel(paperWidth, printerPPI)
-    paperHeight = inchToPixel(paperHeight, printerPPI)
-    minGlueBorderWidth = inchToPixel(minGlueBorderWidth, printerPPI)
 
-    paperNumberRows = math.ceil(posterHeight / paperHeight)
-    paperNumberCols = math.ceil(posterWidth / paperWidth)
+def processAndSavePages(pageId,oriImg,config:Config):
+
+    glueBorderSize = inchToPixel(config.minGlueBorderSize, config.printerPPI)
+    pageWidth=inchToPixel(config.paperWidth, config.printerPPI)
+    pageHeight=inchToPixel(config.paperHeight, config.printerPPI)
+    imagePatchWidth = pageWidth-glueBorderSize
+    imagePatchHeight = pageHeight-glueBorderSize
+
+    paperNumberRows = math.ceil((oriImg.height) / (imagePatchHeight-2*glueBorderSize))
+    paperNumberCols = math.ceil((oriImg.width) / (imagePatchWidth-2*glueBorderSize))
 
     topCuttingMethodArray = np.zeros(shape=(paperNumberRows, paperNumberCols), dtype=int)
     leftCuttingMethodArray = np.zeros(shape=(paperNumberRows, paperNumberCols), dtype=int)
@@ -129,14 +163,37 @@ if __name__ == '__main__':
                   (rightCuttingMethodArray == 1).shape[1] + \
                   (bottomCuttingMethodArray == 1).shape[1]
 
-    for curRow in range(paperNumberRows):
+    imageList=[]
+    contentHeight = oriImg.height / paperNumberRows
+    contentWidth = oriImg.width / paperNumberCols
+    for curRow in tqdm(range(paperNumberRows)):
         for curCol in range(paperNumberCols):
-            contentRows = posterHeight // paperNumberRows
-            contentCols = posterWidth // paperNumberCols
-
-            generateImage(oriImg[curRow * contentRows:min(posterHeight, (curRow + 1) * contentRows),
-                          curCol * contentCols:min(posterWidth, (curCol + 1) * contentCols), :], curRow, curCol,
+            x = curCol * contentWidth
+            y = curRow * contentHeight
+            imagePatch=oriImg.crop([x,y,x + contentWidth, y + contentHeight])
+            curImg = generateImage(imagePatch, curRow, curCol,
                           (leftCuttingMethodArray[curRow, curCol],
                            rightCuttingMethodArray[curRow, curCol],
                            topCuttingMethodArray[curRow, curCol],
-                           bottomCuttingMethodArray[curRow, curCol]), minGlueBorderWidth)
+                           bottomCuttingMethodArray[curRow, curCol]),
+                                   (pageWidth,pageHeight))
+            imageList.append(curImg)
+
+    with open('output_page%d.pdf'%(pageId),'wb') as f:
+        imageList[0].save(f,format='PDF',save_all=True,append_images=imageList[1:],dpi=(config.printerPPI,config.printerPPI),
+                          creator="https://github.com/GammaPi/MakeConferencePostersAtHome")
+
+
+if __name__ == '__main__':
+    config=Config()
+    config.pdfPath= input('PDF Path:\n')
+    config.paperWidth = float(input('Paper Width (In inches):\n'))
+    config.paperHeight = float(input('Paper Height (In inches):\n'))
+    config.minGlueBorderSize = float(input('Min Glue Border Width (In inches):\n'))
+    config.printerPPI = 300
+
+    imageList = pdf2image.convert_from_path(config.pdfPath,dpi=config.printerPPI)
+    for i,curImg in tqdm(enumerate(imageList),position=0):
+        processAndSavePages(i,curImg,config)
+
+
