@@ -1,4 +1,4 @@
-byimport math
+import math
 import pdf2image
 import numpy as np
 import os
